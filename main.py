@@ -1,5 +1,5 @@
 from machine import I2C, Pin
-from time import sleep
+from time import sleep, ticks_diff, ticks_ms
 
 from boot import connect_wifi
 
@@ -9,11 +9,33 @@ except ImportError:
     import urequests as requests
 
 try:
-    from kit_pins import OLED_SCL, OLED_SDA
+    from buzzer import Buzzer
+    from ir_nec import NECRemote
+    from kit_pins import (
+        BUZZER,
+        IR_RECEIVER,
+        LED_GREEN,
+        LED_RED,
+        LED_YELLOW,
+        OLED_SCL,
+        OLED_SDA,
+        RELAY,
+    )
     from sh1106 import SH1106_I2C
     from ssd1306 import SSD1306_I2C
 except ImportError:
-    from lib.kit_pins import OLED_SCL, OLED_SDA
+    from lib.buzzer import Buzzer
+    from lib.ir_nec import NECRemote
+    from lib.kit_pins import (
+        BUZZER,
+        IR_RECEIVER,
+        LED_GREEN,
+        LED_RED,
+        LED_YELLOW,
+        OLED_SCL,
+        OLED_SDA,
+        RELAY,
+    )
     from lib.sh1106 import SH1106_I2C
     from lib.ssd1306 import SSD1306_I2C
 
@@ -64,6 +86,28 @@ WEATHER_CODES = {
     81: "Showers",
     82: "Heavy showers",
     95: "Thunderstorm",
+}
+
+REMOTE_NAMES = {
+    0x45: "CH-",
+    0x46: "CH",
+    0x47: "CH+",
+    0x44: "PREV",
+    0x40: "NEXT",
+    0x43: "PLAY",
+    0x07: "VOL-",
+    0x15: "VOL+",
+    0x09: "EQ",
+    0x16: "0",
+    0x0C: "1",
+    0x18: "2",
+    0x5E: "3",
+    0x08: "4",
+    0x1C: "5",
+    0x5A: "6",
+    0x42: "7",
+    0x52: "8",
+    0x4A: "9",
 }
 
 
@@ -125,9 +169,63 @@ def make_oled(i2c):
     return SSD1306_I2C(128, 64, i2c)
 
 
+def toggle(pin):
+    pin.value(0 if pin.value() else 1)
+
+
+def handle_remote(code, outputs, buzzer):
+    command = code["command"]
+    name = REMOTE_NAMES.get(command, "UNKNOWN")
+    action = "Show code"
+
+    if command == 0x0C:
+        toggle(outputs["red"])
+        action = "Toggle red LED"
+    elif command == 0x18:
+        toggle(outputs["yellow"])
+        action = "Toggle yellow LED"
+    elif command == 0x5E:
+        toggle(outputs["green"])
+        action = "Toggle green LED"
+    elif command == 0x16:
+        for pin in outputs.values():
+            pin.value(0)
+        action = "All outputs off"
+    elif command == 0x43:
+        toggle(outputs["relay"])
+        action = "Toggle relay"
+    elif command == 0x15:
+        buzzer.tone(880, 0.08)
+        action = "Beep high"
+    elif command == 0x07:
+        buzzer.tone(440, 0.08)
+        action = "Beep low"
+    elif command in (0x45, 0x46, 0x47):
+        action = "Weather page"
+
+    return [
+        "IR Remote",
+        "Key " + name,
+        "Cmd 0x%02X" % command,
+        "Addr 0x%02X" % code["address"],
+        action,
+        "Raw %08X" % code["raw"],
+    ]
+
+
 def main():
     i2c = I2C(0, scl=Pin(OLED_SCL), sda=Pin(OLED_SDA), freq=400000)
     oled = make_oled(i2c)
+    remote = NECRemote(IR_RECEIVER)
+    buzzer = Buzzer(BUZZER)
+    outputs = {
+        "red": Pin(LED_RED, Pin.OUT),
+        "yellow": Pin(LED_YELLOW, Pin.OUT),
+        "green": Pin(LED_GREEN, Pin.OUT),
+        "relay": Pin(RELAY, Pin.OUT),
+    }
+    for pin in outputs.values():
+        pin.value(0)
 
     draw(oled, ["Hualien Weather", "Connecting WiFi"])
     wlan = connect_wifi(timeout_seconds=15)
@@ -143,14 +241,35 @@ def main():
     else:
         print("Wi-Fi unavailable; showing saved weather snapshot.")
 
+    draw(oled, format_weather(weather))
+    next_weather_refresh = ticks_ms() + 300000
+    show_weather_at = ticks_ms()
+
     while True:
-        draw(oled, format_weather(weather))
-        sleep(300)
-        if wlan and wlan.isconnected():
+        code = remote.read()
+        if code:
+            lines = handle_remote(code, outputs, buzzer)
+            draw(oled, lines)
+            show_weather_at = ticks_ms() + 2500
+            print(
+                "IR addr=0x%02X cmd=0x%02X raw=0x%08X"
+                % (code["address"], code["command"], code["raw"])
+            )
+
+        now = ticks_ms()
+        if ticks_diff(now, show_weather_at) >= 0:
+            draw(oled, format_weather(weather))
+            show_weather_at = now + 300000
+
+        if wlan and wlan.isconnected() and ticks_diff(now, next_weather_refresh) >= 0:
             try:
                 weather = fetch_weather()
+                draw(oled, format_weather(weather))
             except Exception as exc:
                 print("Weather refresh failed:", exc)
+            next_weather_refresh = now + 300000
+
+        sleep(0.02)
 
 
 main()
