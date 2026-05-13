@@ -18,4 +18,4 @@ OLED_SDA = 21
 OLED_SCL = 22
 
 # Confirm this with the expansion board printing before use.
-IR_RECEIVER = 35
+IR_RECEIVER = 33
