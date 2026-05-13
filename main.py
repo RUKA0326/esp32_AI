@@ -23,6 +23,7 @@ try:
     )
     from sh1106 import SH1106_I2C
     from ssd1306 import SSD1306_I2C
+    from zh_oled import draw_lines
 except ImportError:
     from lib.buzzer import Buzzer
     from lib.ir_nec import NECRemote
@@ -38,6 +39,7 @@ except ImportError:
     )
     from lib.sh1106 import SH1106_I2C
     from lib.ssd1306 import SSD1306_I2C
+    from lib.zh_oled import draw_lines
 
 try:
     from config import OLED_DRIVER
@@ -111,17 +113,6 @@ REMOTE_NAMES = {
 }
 
 
-def fit(text):
-    return str(text)[:16]
-
-
-def draw(oled, lines):
-    oled.fill(0)
-    for row, line in enumerate(lines[:6]):
-        oled.text(fit(line), 0, row * 10)
-    oled.show()
-
-
 def weather_name(code):
     return WEATHER_CODES.get(code, "Weather %s" % code)
 
@@ -154,12 +145,11 @@ def fetch_weather():
 
 def format_weather(weather):
     return [
-        "Hualien Today",
+        "花蓮今日天氣",
         weather["date"][5:] + " " + weather["time"],
-        weather["condition"],
-        "Now %.1fC RH %d%%" % (weather["temp"], weather["humidity"]),
-        "H %.1f L %.1fC" % (weather["high"], weather["low"]),
-        "Rain %d%% %s" % (weather["rain"], weather["source"]),
+        "溫%.1fC 濕%d%%" % (weather["temp"], weather["humidity"]),
+        "高%.1f 低%.1f" % (weather["high"], weather["low"]),
+        "降雨%d%%" % weather["rain"],
     ]
 
 
@@ -180,36 +170,35 @@ def handle_remote(code, outputs, buzzer):
 
     if command == 0x0C:
         toggle(outputs["red"])
-        action = "Toggle red LED"
+        action = "紅燈"
     elif command == 0x18:
         toggle(outputs["yellow"])
-        action = "Toggle yellow LED"
+        action = "黃燈"
     elif command == 0x5E:
         toggle(outputs["green"])
-        action = "Toggle green LED"
+        action = "綠燈"
     elif command == 0x16:
         for pin in outputs.values():
             pin.value(0)
-        action = "All outputs off"
+        action = "全部關"
     elif command == 0x43:
         toggle(outputs["relay"])
-        action = "Toggle relay"
+        action = "繼電器"
     elif command == 0x15:
         buzzer.tone(880, 0.08)
-        action = "Beep high"
+        action = "蜂鳴高"
     elif command == 0x07:
         buzzer.tone(440, 0.08)
-        action = "Beep low"
+        action = "蜂鳴低"
     elif command in (0x45, 0x46, 0x47):
-        action = "Weather page"
+        action = "天氣"
 
     return [
-        "IR Remote",
-        "Key " + name,
-        "Cmd 0x%02X" % command,
+        "遙控器",
+        "按鍵 " + name,
+        "碼 0x%02X" % command,
         "Addr 0x%02X" % code["address"],
-        action,
-        "Raw %08X" % code["raw"],
+        "功能 " + action,
     ]
 
 
@@ -227,7 +216,7 @@ def main():
     for pin in outputs.values():
         pin.value(0)
 
-    draw(oled, ["Hualien Weather", "Connecting WiFi"])
+    draw_lines(oled, ["花蓮今日天氣", "WiFi"])
     wlan = connect_wifi(timeout_seconds=15)
 
     weather = SNAPSHOT
@@ -241,7 +230,7 @@ def main():
     else:
         print("Wi-Fi unavailable; showing saved weather snapshot.")
 
-    draw(oled, format_weather(weather))
+    draw_lines(oled, format_weather(weather))
     next_weather_refresh = ticks_ms() + 300000
     show_weather_at = ticks_ms()
 
@@ -249,7 +238,7 @@ def main():
         code = remote.read()
         if code:
             lines = handle_remote(code, outputs, buzzer)
-            draw(oled, lines)
+            draw_lines(oled, lines)
             show_weather_at = ticks_ms() + 2500
             print(
                 "IR addr=0x%02X cmd=0x%02X raw=0x%08X"
@@ -258,13 +247,13 @@ def main():
 
         now = ticks_ms()
         if ticks_diff(now, show_weather_at) >= 0:
-            draw(oled, format_weather(weather))
+            draw_lines(oled, format_weather(weather))
             show_weather_at = now + 300000
 
         if wlan and wlan.isconnected() and ticks_diff(now, next_weather_refresh) >= 0:
             try:
                 weather = fetch_weather()
-                draw(oled, format_weather(weather))
+                draw_lines(oled, format_weather(weather))
             except Exception as exc:
                 print("Weather refresh failed:", exc)
             next_weather_refresh = now + 300000
