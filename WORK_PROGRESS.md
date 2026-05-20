@@ -1,5 +1,58 @@
 # Work Progress
 
+Date: 2026-05-20
+
+## Today's Work: iPhone BLE UART Control
+
+### Goal
+
+Add Bluetooth support that works with iPhone 13. iPhone does not expose the
+classic Bluetooth Serial Port Profile (SPP), so the project now uses BLE
+with a Nordic UART compatible service.
+
+### What Was Built
+
+- `lib/ble_uart.py` -- reusable BLE UART service using:
+  - Service UUID: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
+  - RX/write UUID: `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`
+  - TX/notify UUID: `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`
+- `main.py` keeps the existing NEC IR digit display and buzzer behavior, then
+  adds BLE advertising as `ESP32-BLE`, phone commands, RGB/status LED control,
+  and IR notifications to the phone.
+- `tools/deploy.ps1` now prefers `.venv\Scripts\mpremote.exe` before falling
+  back to `uv run mpremote`.
+
+### iPhone 13 Test App
+
+Use a BLE utility app such as `nRF Connect` or `LightBlue`. Scan for
+`ESP32-BLE`, connect, enable notifications on TX, then write text commands
+to RX.
+
+### Phone Commands
+
+```text
+HELP
+STATUS
+RGB OFF
+RGB RED
+RGB GREEN
+RGB BLUE
+RGB WHITE
+RGB 64 0 0
+LED RED ON
+LED YELLOW OFF
+LED GREEN ON
+LED ALL OFF
+```
+
+When an IR key is pressed, the phone receives a notification like:
+
+```text
+IR digit=5 addr=0x00 cmd=0x40 raw=0xBF40FF00
+```
+
+---
+
 Date: 2026-05-06
 
 ## Current ESP32 LED Test
